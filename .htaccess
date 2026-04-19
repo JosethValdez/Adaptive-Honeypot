@@ -1,0 +1,16 @@
+# Enable rewrite
+RewriteEngine On
+
+# If the requested file or directory exists, serve it normally
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Allow these known entry points to be requested directly
+RewriteRule ^(go\.php|gen_loading\.php|loading\.php|index\.php|observe\.php|trap\.php|robots\.txt)$ - [L]
+
+# Trap common scanner hits explicitly (optional but readable)
+RewriteRule ^(\.env|wp-admin|wp-login\.php|wordpress|phpmyadmin|pma|admin|cgi-bin|cgi|\.git|vendor|composer\.json|config\.php)$ trap.php [L,QSA]
+
+# Default: anything else that doesn't exist goes to trap
+RewriteRule ^ trap.php [L,QSA]

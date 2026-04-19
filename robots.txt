@@ -1,0 +1,11 @@
+User-agent: *
+Disallow: /.env
+Disallow: /wp-admin/
+Disallow: /wp-login.php
+Disallow: /phpmyadmin/
+Disallow: /pma/
+Disallow: /.git/
+Disallow: /cgi-bin/
+Disallow: /admin/
+Disallow: /vendor/
+Disallow: /config.php
