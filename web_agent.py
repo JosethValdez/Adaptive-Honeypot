@@ -1,4 +1,5 @@
 from ollama import chat
+from bait import inject_bait
 import os
 
 def generate_page():
@@ -29,17 +30,13 @@ def generate_page():
         "Link requirements:\n"
         "- INTERNAL links only (relative links).\n"
         "- IMPORTANT: Every hyperlink MUST point to go.php with a query parameter.\n"
-        "- ONLY generate links to PHP pages. The p= value MUST end with .php (never .sh, .py, no extension).\n"
-        "- Do NOT link to any real scripts/files like listener.sh, handler.sh, page_agent.py, web_agent.py, clicks.log, *.ready.\n"
-        "- CRITICAL: Never write links like go.php?p/anything.php (missing '='). It must be go.php?p=FILENAME.php\n"
-        "- Use this exact pattern for EACH link (copy literally; only change FILENAME.php and LINK TEXT):\n"
-        "    <a href=\"go.php?p=FILENAME.php&label=<?php echo urlencode('LINK TEXT'); ?>\">LINK TEXT</a>\n"
-        "- LINK TEXT must exactly match the visible link text.\n"
+        "- Use this exact format for each link:\n"
+        "    href=\"go.php?p=FILENAME.php&label=LABEL\"\n"
         "- FILENAME.php must be a plausible PHP page name in the same folder.\n"
         "- Include index.php as one of the FILENAME.php values.\n"
         "- Do NOT link to any external websites/domains.\n"
         "- Do NOT use placeholders like example.com.\n"
-        "- Use believable link text based on the FILENAME.php.\n"
+        "- Use believable labels based on the FILENAME.php.\n"
         "\n"
         "Output only the final code for index.php."
     )
@@ -75,7 +72,7 @@ def main():
     except OSError:
         pass
 
-    page_content = clean_output(generate_page())
+    page_content = inject_bait(clean_output(generate_page()), "index.php")
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(page_content)

@@ -1,4 +1,5 @@
 from ollama import chat
+from bait import inject_bait
 import os
 import re
 import sys
@@ -70,6 +71,10 @@ def generate_page(filename: str, label: str) -> str:
         "    <a href=\"go.php?p=index.php&label=<?php echo urlencode('Server Links'); ?>\">Server Links</a>\n"
         "- Do NOT link to any external websites/domains.\n"
         "\n"
+        "Restrictions:\n"
+        "- Do NOT include any <form> elements. Forms are added separately.\n"
+        "- Do NOT include <script> tags or JavaScript.\n"
+        "\n"
         f"Output only the final code for {filename}."
     )
 
@@ -106,7 +111,7 @@ def main():
     except OSError:
         pass
 
-    page_content = clean_output(generate_page(filename, label))
+    page_content = inject_bait(clean_output(generate_page(filename, label)), filename)
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(page_content)
@@ -116,5 +121,4 @@ def main():
         f.write("ready\n")
 
 if __name__ == "__main__":
-
     main()
