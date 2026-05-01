@@ -1,0 +1,2 @@
+[2026-05-02 00:43:02] ip=::1 method=POST ref=http://localhost/server/index.php ua=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 fields={P:from=index.php || P:username=Joseth || P:password=password123}
+[2026-05-02 00:46:22] ip=::1 method=POST ref=http://localhost/server/db_console.php ua=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 fields={P:from=db_console.php || P:username=SANJAY || P:password=12345}

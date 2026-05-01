@@ -2,6 +2,7 @@ from ollama import chat
 import os
 
 import bait
+import linkfix
 from config import observations
 
 def generate_page():
@@ -30,15 +31,16 @@ def generate_page():
         "- Then show a bulleted list of 5 to 8 hyperlinks (<ul><li><a>)\n"
         "\n"
         "Link requirements:\n"
-        "- INTERNAL links only (relative links).\n"
-        "- IMPORTANT: Every hyperlink MUST point to go.php with a query parameter.\n"
-        "- Use this exact format for each link:\n"
-        "    href=\"go.php?p=FILENAME.php&label=LABEL\"\n"
+        "- ALL hyperlinks MUST route through go.php (relative, no external sites).\n"
+        "- Use this EXACT format for every link:\n"
+        "    <a href=\"go.php?p=FILENAME.php&label=LABEL\">LINK TEXT</a>\n"
+        "- LABEL is LINK TEXT with spaces replaced by underscores. Only letters, digits, and underscores in LABEL.\n"
+        "- Example: <a href=\"go.php?p=contact.php&label=Contact_Us\">Contact Us</a>\n"
         "- FILENAME.php must be a plausible PHP page name in the same folder.\n"
-        "- Include index.php as one of the FILENAME.php values.\n"
-        "- Do NOT link to any external websites/domains.\n"
+        "- Include index.php as one of the links: <a href=\"go.php?p=index.php&label=Server_Links\">Server Links</a>\n"
+        "- Do NOT include <?php ?> code inside link URLs.\n"
+        "- Do NOT link directly to any *.php file. Every link must go through go.php.\n"
         "- Do NOT use placeholders like example.com.\n"
-        "- Use believable labels based on the FILENAME.php.\n"
         "\n"
         "Output only the final code for index.php."
     )
@@ -75,6 +77,7 @@ def main():
         pass
 
     page_content = clean_output(generate_page())
+    page_content = linkfix.fix(page_content)
     page_content = bait.inject("index.php", page_content)
     observations.record("index.php", "web", page_content)
 

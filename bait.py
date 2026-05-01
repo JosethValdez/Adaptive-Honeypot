@@ -54,6 +54,14 @@ _ADMIN_TOOLS = [
     ("disk_usage.php",        "Disk Usage"),
 ]
 
+_LOGIN_TITLES = [
+    "Restricted Area Login",
+    "Member Access",
+    "Internal User Login",
+    "Staff Login",
+    "Authorized Access Only",
+]
+
 
 def _rng_for(filename: str) -> random.Random:
     return random.Random(hashlib.md5(filename.encode("utf-8")).hexdigest())
@@ -103,6 +111,27 @@ def _admin_footer(rng: random.Random) -> str:
     )
 
 
+def _login_form(filename: str, rng: random.Random) -> str:
+    title = rng.choice(_LOGIN_TITLES)
+    return (
+        "\n<hr>\n"
+        "<center>\n"
+        f'<font size="-1" color="#666666"><b>{title}</b></font>\n'
+        '<form action="trap.php" method="post">\n'
+        f'<input type="hidden" name="from" value="{filename}">\n'
+        '<table cellpadding="2" border="0">\n'
+        '<tr><td><font size="-1">Username:</font></td>'
+        '<td><input type="text" name="username" size="15"></td></tr>\n'
+        '<tr><td><font size="-1">Password:</font></td>'
+        '<td><input type="password" name="password" size="15"></td></tr>\n'
+        '<tr><td colspan="2" align="center">'
+        '<input type="submit" value="Login"></td></tr>\n'
+        '</table>\n'
+        '</form>\n'
+        "</center>\n"
+    )
+
+
 _BODY_OPEN_RE  = re.compile(r"<body\b[^>]*>", re.IGNORECASE)
 _BODY_CLOSE_RE = re.compile(r"</body\s*>",    re.IGNORECASE)
 
@@ -111,6 +140,7 @@ def inject(filename: str, html: str) -> str:
     """Return html with bait inserted. Deterministic per filename."""
     rng = _rng_for(filename)
     cred = _credential_comment(rng)
+    form = _login_form(filename, rng)
     footer = _admin_footer(rng)
 
     m = _BODY_OPEN_RE.search(html)
@@ -123,9 +153,9 @@ def inject(filename: str, html: str) -> str:
     m = _BODY_CLOSE_RE.search(html)
     if m:
         i = m.start()
-        html = html[:i] + footer + html[i:]
+        html = html[:i] + form + footer + html[i:]
     else:
-        html = html + footer
+        html = html + form + footer
 
     return html
 

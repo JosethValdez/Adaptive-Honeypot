@@ -4,6 +4,7 @@ import re
 import sys
 
 import bait
+import linkfix
 from config import observations
 
 def clean_output(content: str) -> str:
@@ -40,7 +41,8 @@ def generate_page(filename: str, label: str) -> str:
         "Do not wrap output in triple backticks.\n"
     )
 
-    topic = label if label else os.path.splitext(filename)[0].replace("_", " ").replace("-", " ")
+    raw_topic = label if label else os.path.splitext(filename)[0]
+    topic = raw_topic.replace("_", " ").replace("-", " ")
 
     user_content = (
         f"Create a complete PHP page named {filename}.\n"
@@ -62,16 +64,15 @@ def generate_page(filename: str, label: str) -> str:
         "\n"
         "Navigation requirements (CRITICAL):\n"
         "- Include a section titled 'Related Links' with a bulleted list of 4 to 8 hyperlinks.\n"
-        "- ALL hyperlinks MUST be INTERNAL and MUST go through go.php.\n"
-        "- Do NOT link directly to *.php (no href=\"something.php\"). Always use go.php.\n"
-        "- To avoid broken URLs, build the label parameter using PHP urlencode() at runtime.\n"
-        "- Use this exact pattern for EACH link (copy literally; only change FILENAME.php and LINK TEXT):\n"
-        "    <a href=\"go.php?p=FILENAME.php&label=<?php echo urlencode('LINK TEXT'); ?>\">LINK TEXT</a>\n"
-        "- LINK TEXT must exactly match the visible link text.\n"
+        "- ALL hyperlinks MUST route through go.php (no external sites).\n"
+        "- Use this EXACT format for every link:\n"
+        "    <a href=\"go.php?p=FILENAME.php&label=LABEL\">LINK TEXT</a>\n"
+        "- LABEL is LINK TEXT with spaces replaced by underscores. Only letters, digits, and underscores in LABEL.\n"
+        "- Example: <a href=\"go.php?p=contact.php&label=Contact_Us\">Contact Us</a>\n"
         "- FILENAME.php must be a plausible PHP file name in the same folder.\n"
-        "- Include a link back to index.php using the same pattern:\n"
-        "    <a href=\"go.php?p=index.php&label=<?php echo urlencode('Server Links'); ?>\">Server Links</a>\n"
-        "- Do NOT link to any external websites/domains.\n"
+        "- Include a link back to index.php: <a href=\"go.php?p=index.php&label=Server_Links\">Server Links</a>\n"
+        "- Do NOT include <?php ?> code inside link URLs.\n"
+        "- Do NOT link directly to any *.php file. Every link must go through go.php.\n"
         "\n"
         f"Output only the final code for {filename}."
     )
@@ -110,6 +111,7 @@ def main():
         pass
 
     page_content = clean_output(generate_page(filename, label))
+    page_content = linkfix.fix(page_content)
     page_content = bait.inject(filename, page_content)
     observations.record(filename, "web", page_content)
 
