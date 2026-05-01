@@ -1,72 +1,71 @@
 <?php
-// Core router: logs every click, triggers page generation, then hands off to the loading poller.
+// go.php: router for AI-generated pages (Windows/XAMPP)
+// - Requires ?p=... (no silent default)
+// - Logs every click so you can see what params are arriving
 
-// Files that must never be overwritten by the LLM generator.
-define('PROTECTED_FILES', ['go.php', 'loading.php', 'gen_loading.php', 'trap.php']);
-
-function safeBaseName(string $s): string {
-    $s = str_replace("\\", "/", $s);
-    $s = basename($s);
-    $s = preg_replace('/[^A-Za-z0-9._-]/', '', $s);
-    if ($s === '') $s = 'page.php';
-    if (!preg_match('/\.php$/i', $s)) $s .= '.php';
-    return $s;
+$clickLog = __DIR__ . "/clicks.log";
+function log_click($msg) {
+  global $clickLog;
+  @file_put_contents($clickLog, "[" . date("Y-m-d H:i:s") . "] " . $msg . "\n", FILE_APPEND);
 }
 
-function safeLabel(string $s): string {
-    $s = strip_tags($s);
-    $s = preg_replace('/[\x00-\x1F\x7F]/', '', $s);
-    return substr(trim($s), 0, 80);
+function safeBaseName($s) {
+  $s = str_replace("\\", "/", (string)$s);
+  $s = basename($s);
+  $s = preg_replace('/[^A-Za-z0-9._-]/', '', $s);
+  if ($s === '') return '';
+  if (!preg_match('/\.php$/i', $s)) $s .= '.php';
+  return $s;
 }
 
-function logEvent(array $data): void {
-    $line = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
-    file_put_contents(__DIR__ . '/clicks.log', $line, FILE_APPEND | LOCK_EX);
-}
+$p_raw = $_GET['p'] ?? '';
+$label_raw = $_GET['label'] ?? '';
 
-$ip     = $_SERVER['REMOTE_ADDR']    ?? '';
-$ua     = $_SERVER['HTTP_USER_AGENT'] ?? '';
-$ref    = $_SERVER['HTTP_REFERER']   ?? '';
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$uri    = $_SERVER['REQUEST_URI']    ?? '';
-$ts     = date('Y-m-d H:i:s');
+log_click("RAW url=" . ($_SERVER["REQUEST_URI"] ?? "") . " | p_raw=" . $p_raw . " | label_raw=" . $label_raw);
 
-$p_raw     = (string)($_GET['p']     ?? '');
-$label_raw = (string)($_GET['label'] ?? '');
-
+// Require p. If missing, don’t “default”, because that causes the wrong-page problem.
 $phpFile = safeBaseName($p_raw);
-$label   = safeLabel($label_raw);
-
-// Redirect protected-file requests to index so the LLM never overwrites them.
-if (in_array(strtolower($phpFile), PROTECTED_FILES, true)) {
-    $phpFile = 'index.php';
-    $label   = $label ?: 'Server Links';
+if ($phpFile === '') {
+  http_response_code(400);
+  header("Content-Type: text/plain; charset=utf-8");
+  echo "Missing or invalid parameter: p\n";
+  echo "URL: " . ($_SERVER["REQUEST_URI"] ?? "") . "\n";
+  exit;
 }
 
-$base      = preg_replace('/\.php$/i', '', $phpFile);
-$readyFlag = __DIR__ . '/' . $base . '.ready';
-$pageFile  = __DIR__ . '/' . $phpFile;
+$base = preg_replace('/\.php$/i', '', $phpFile);
+$phpPath = __DIR__ . DIRECTORY_SEPARATOR . $phpFile;
+$readyFlag = __DIR__ . DIRECTORY_SEPARATOR . $base . ".ready";
 
-logEvent([
-    'ts' => $ts, 'type' => 'CLICK',
-    'ip' => $ip, 'ua' => $ua, 'referer' => $ref,
-    'method' => $method, 'uri' => $uri,
-    'p_raw' => $p_raw, 'label_raw' => $label_raw,
-]);
+// Normalize label: browsers decode + into space when reading $_GET.
+// That’s fine; we just pass it to python as plain text.
+$labelArg = trim((string)$label_raw);
+if ($labelArg === '') $labelArg = $base;
 
-if (!file_exists($readyFlag)) {
-    $py  = str_replace('/', '\\', __DIR__) . '\\page_agent.py';
-    $cmd = 'cmd /c start "" /B py -3 "' . $py . '" "'
-         . addslashes($phpFile) . '" "'
-         . addslashes($label)   . '" > NUL 2>&1';
-    shell_exec($cmd);
-    logEvent([
-        'ts' => $ts, 'type' => 'GEN',
-        'ip' => $ip, 'ua' => $ua, 'referer' => $ref,
-        'method' => $method, 'uri' => $uri,
-        'cmd' => $cmd, 'target' => $phpFile, 'label' => $label,
-    ]);
+// If already generated, go straight there
+if (file_exists($phpPath) && file_exists($readyFlag)) {
+  log_click("HIT cache -> redirect " . $phpFile);
+  header("Location: " . $phpFile, true, 302);
+  exit;
 }
 
-header('Location: gen_loading.php?p=' . rawurlencode($phpFile), true, 302);
+// Trigger generation
+$script = __DIR__ . DIRECTORY_SEPARATOR . "page_agent.py";
+
+// Clear ready flag to avoid stale redirect
+if (file_exists($readyFlag)) {
+  @unlink($readyFlag);
+}
+
+$cmd =
+  'cmd /c start "" /B py -3 ' .
+  escapeshellarg($script) . ' ' .
+  escapeshellarg($phpFile) . ' ' .
+  escapeshellarg($labelArg) .
+  ' > NUL 2>&1';
+
+log_click("GEN cmd=" . $cmd);
+@exec($cmd);
+
+header("Location: gen_loading.php?p=" . urlencode($phpFile), true, 302);
 exit;

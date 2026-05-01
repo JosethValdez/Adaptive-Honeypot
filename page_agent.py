@@ -1,8 +1,10 @@
 from ollama import chat
-from bait import inject_bait
 import os
 import re
 import sys
+
+import bait
+from config import observations
 
 def clean_output(content: str) -> str:
     # Remove triple-backtick wrappers if the model adds them anyway
@@ -71,10 +73,6 @@ def generate_page(filename: str, label: str) -> str:
         "    <a href=\"go.php?p=index.php&label=<?php echo urlencode('Server Links'); ?>\">Server Links</a>\n"
         "- Do NOT link to any external websites/domains.\n"
         "\n"
-        "Restrictions:\n"
-        "- Do NOT include any <form> elements. Forms are added separately.\n"
-        "- Do NOT include <script> tags or JavaScript.\n"
-        "\n"
         f"Output only the final code for {filename}."
     )
 
@@ -111,7 +109,9 @@ def main():
     except OSError:
         pass
 
-    page_content = inject_bait(clean_output(generate_page(filename, label)), filename)
+    page_content = clean_output(generate_page(filename, label))
+    page_content = bait.inject(filename, page_content)
+    observations.record(filename, "web", page_content)
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(page_content)

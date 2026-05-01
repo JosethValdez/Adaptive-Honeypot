@@ -1,6 +1,8 @@
 from ollama import chat
-from bait import inject_bait
 import os
+
+import bait
+from config import observations
 
 def generate_page():
     system_content = (
@@ -72,7 +74,9 @@ def main():
     except OSError:
         pass
 
-    page_content = inject_bait(clean_output(generate_page()), "index.php")
+    page_content = clean_output(generate_page())
+    page_content = bait.inject("index.php", page_content)
+    observations.record("index.php", "web", page_content)
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(page_content)

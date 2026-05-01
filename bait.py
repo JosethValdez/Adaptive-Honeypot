@@ -1,183 +1,141 @@
 """
-Post-processing bait injection for generated honeypot pages.
+bait.py — deterministic bait injector (v1).
 
-Deterministic: seeded by filename so the same page always gets the same bait
-even after regeneration.  All forms submit to trap.php.
+Inserts two decoys into LLM-generated pages:
+  1. A credential HTML comment immediately after <body>.
+  2. An admin-tools <ul> footer immediately before </body>.
+
+Determinism: random.Random(md5(filename)). Same filename, same bait —
+returning attackers see consistent decoys.
+
+Public API:
+    inject(filename: str, html: str) -> str
 """
 import hashlib
 import random
 import re
+from urllib.parse import quote
 
-# --- credential / debug bait pools ---
+from config import identity
 
-_CRED_COMMENTS = [
-    "<!-- TODO: update admin creds before cutover -- webmaster:Web@2001 -->",
-    "<!-- DB config: host=192.168.10.50 user=webapp pass=Webapp#99 db=corpintra -->",
-    "<!-- legacy account: admin / Corp@dmin2000 -- disable after migration -->",
-    "<!-- FTP access: ftpsrv / Ftp!Srv2003 -- contact IT dept -->",
-    "<!-- backup cron uses: backup / B@ckup!01 -- read-only account -->",
-    "<!-- DEV ONLY: remove before prod -- test login admin:admin123 -->",
-    "<!-- mysql defaults still set: root@localhost / root -- dev env -->",
-    "<!-- sysadmin temporary pass: S@sAdmin2002 -- force change on next login -->",
+
+# Service / app credentials that don't map to real OS users.
+# OS users with usable ssh_password values are appended at runtime
+# from identity.json — that's the bridge to Cowrie in Phase 2.
+_SERVICE_CREDS = [
+    ("dbadmin",    "Sp!ring2019"),
+    ("svc_backup", "Backup#2018"),
+    ("svnuser",    "svn1234"),
+    ("ftpadmin",   "ftp_2017!"),
+    ("oracle",     "Oracle9i"),
+    ("monitor",    "M0n1tor#"),
 ]
 
-_DEBUG_SNIPPETS = [
-    '<?php /* DEBUG -- remove: $db_pass = "corp_db_2001"; */ ?>',
-    '<?php /* TEMP: define("ADMIN_SECRET", "a3f9c2d1b4e8"); remove me */ ?>',
-    '<!-- DEBUG: SESSION_SECRET=7f3a9b2c4d1e (do not commit) -->',
-    '<!-- env dump: APP_KEY=base64:Tz3a9b2cX1eQ= DB_PASS=intra_2001 -->',
-    '<?php /* TODO: $config["api_key"] = "sk-corp-4f8a2b9c1d3e"; */ ?>',
-    '<!-- leftover: SMTP_USER=mailrelay SMTP_PASS=relay!2003 host=mail.corp.local -->',
+_CRED_TEMPLATES = [
+    "TODO({author}): rotate {user} pw before audit -- current: {user} / {pw}",
+    "DEBUG: login failing for {user} -- creds in use: {user} / {pw}",
+    "FIXME: hardcoded creds -- move to env. {user} / {pw}",
+    "MEMO from {author}: password reset to '{pw}' for {user}, please update scripts",
+    "NOTE: {svc} access -- {user} / {pw} (legacy, do not change)",
 ]
 
-# --- admin panel hint pools ---
+_SERVICE_LABELS = ["db", "backup", "svn", "ftp", "oracle", "monitor"]
 
-_ADMIN_LINK_SETS = [
-    [
-        ('Admin Panel',    'admin.php',          'Administration'),
-        ('phpMyAdmin',     'phpmyadmin.php',      'Database Admin'),
-        ('Backup Manager', 'backup_manager.php',  'Backup Manager'),
-    ],
-    [
-        ('Server Admin',   'sysadmin.php',        'System Administration'),
-        ('File Manager',   'filemanager.php',     'File Manager'),
-        ('Log Viewer',     'logs.php',            'Log Viewer'),
-    ],
-    [
-        ('Control Panel',  'cpanel.php',          'Control Panel'),
-        ('DB Admin',       'dbadmin.php',         'Database Administration'),
-        ('User Manager',   'users.php',           'User Management'),
-    ],
-    [
-        ('Admin Tools',    'admin_tools.php',     'Admin Tools'),
-        ('Config Editor',  'config_editor.php',   'Configuration Editor'),
-        ('Access Logs',    'access_logs.php',     'Access Logs'),
-    ],
+_ADMIN_TOOLS = [
+    ("logs_viewer.php",       "Logs Viewer"),
+    ("db_console.php",        "DB Console"),
+    ("backup_console.php",    "Backup Console"),
+    ("system_health.php",     "System Health"),
+    ("phpmyadmin_legacy.php", "phpMyAdmin (legacy)"),
+    ("cron_status.php",       "Cron Status"),
+    ("user_admin.php",        "User Admin"),
+    ("sysmon.php",            "System Monitor"),
+    ("mailq_viewer.php",      "Mail Queue"),
+    ("disk_usage.php",        "Disk Usage"),
 ]
 
-# --- fake file listing pools ---
 
-_FILE_LISTING_SETS = [
-    [
-        ('.env',              'env_config.php',     'Environment Config',    '1.2 KB'),
-        ('backup_corp.sql',   'db_backup.php',      'Database Backup',       '2.1 MB'),
-        ('httpd.conf.bak',    'config_backup.php',  'Config Backup',         '8.4 KB'),
-        ('install.log',       'install_log.php',    'Install Log',           '34 KB'),
-    ],
-    [
-        ('.env.production',   'env_prod.php',       'Production Environment','1.4 KB'),
-        ('db_dump_2003.sql',  'db_dump.php',        'Database Dump',         '5.8 MB'),
-        ('config.bak',        'config_bak.php',     'App Config Backup',     '3.2 KB'),
-        ('access.log.2003',   'access_log.php',     'Access Log',            '128 KB'),
-    ],
-    [
-        ('.htpasswd',         'htpasswd.php',       'Password File',         '512 B'),
-        ('site_backup.tar.gz','site_backup.php',    'Site Backup Archive',   '18 MB'),
-        ('wp-config.php.bak', 'wp_config_bak.php',  'WP Config Backup',      '6.1 KB'),
-        ('users_export.csv',  'users_export.php',   'User Export',           '44 KB'),
-    ],
-    [
-        ('.env.local',        'env_local.php',      'Local Environment',     '980 B'),
-        ('full_dump.sql',     'full_dump.php',      'Full Database Dump',    '12 MB'),
-        ('php.ini.bak',       'phpini_bak.php',     'PHP Config Backup',     '72 KB'),
-        ('cron.log',          'cron_log.php',       'Cron Log',              '210 KB'),
-    ],
-]
-
-# --- form templates (all submit to trap.php) ---
-
-_LOGIN_FORM = """\
-<hr>
-<center><b>Account Login</b></center>
-<form method="POST" action="trap.php">
-<input type="hidden" name="action" value="login">
-<table align="center" cellpadding="3" border="0">
-<tr><td>Username:</td><td><input type="text" name="username" size="20"></td></tr>
-<tr><td>Password:</td><td><input type="password" name="password" size="20"></td></tr>
-<tr><td colspan="2" align="center"><input type="submit" value="Login"></td></tr>
-</table>
-</form>"""
-
-_SEARCH_FORM = """\
-<hr>
-<form method="GET" action="trap.php">
-<input type="hidden" name="action" value="search">
-<b>Search:</b>&nbsp;<input type="text" name="q" size="30">&nbsp;<input type="submit" value="Search">
-</form>"""
-
-_UPLOAD_FORM = """\
-<hr>
-<center><b>Upload File</b></center>
-<form method="POST" action="trap.php" enctype="multipart/form-data">
-<input type="hidden" name="action" value="upload">
-<input type="file" name="file">&nbsp;&nbsp;<input type="submit" value="Upload">
-</form>"""
-
-_FORMS = [_LOGIN_FORM, _SEARCH_FORM, _UPLOAD_FORM]
+def _rng_for(filename: str) -> random.Random:
+    return random.Random(hashlib.md5(filename.encode("utf-8")).hexdigest())
 
 
-def _rng(filename: str) -> random.Random:
-    digest = hashlib.md5(filename.encode()).hexdigest()
-    return random.Random(int(digest, 16))
+def _cred_pool() -> list[tuple[str, str]]:
+    pool = list(_SERVICE_CREDS)
+    for u in identity.get("users", []):
+        pw = u.get("ssh_password", "")
+        if pw and pw not in ("*", "!"):
+            pool.append((u["username"], pw))
+    return pool
 
 
-def _build_go_link(filename: str, label: str, text: str) -> str:
+def _pick_author(rng: random.Random) -> str:
+    candidates = [
+        u["username"] for u in identity.get("users", [])
+        if u["username"] != "nobody"
+    ]
+    return rng.choice(candidates) if candidates else "webmaster"
+
+
+def _credential_comment(rng: random.Random) -> str:
+    user, pw = rng.choice(_cred_pool())
+    body = rng.choice(_CRED_TEMPLATES).format(
+        user=user,
+        pw=pw,
+        svc=rng.choice(_SERVICE_LABELS),
+        author=_pick_author(rng),
+    )
+    return f"<!-- {body} -->"
+
+
+def _admin_footer(rng: random.Random) -> str:
+    n = rng.randint(3, 5)
+    picks = rng.sample(_ADMIN_TOOLS, k=n)
+    items = "\n".join(
+        f'  <li><a href="go.php?p={fname}&label={quote(label)}">{label}</a></li>'
+        for fname, label in picks
+    )
     return (
-        f'<a href="go.php?p={filename}'
-        f'&label=<?php echo urlencode(\'{label}\'); ?>">'
-        f'{text}</a>'
+        "\n<hr>\n"
+        '<font size="-1" color="#666666">Admin Tools:</font>\n'
+        "<ul>\n"
+        f"{items}\n"
+        "</ul>\n"
     )
 
 
-def inject_bait(html: str, filename: str) -> str:
-    """Inject honeypot bait into generated page HTML.
+_BODY_OPEN_RE  = re.compile(r"<body\b[^>]*>", re.IGNORECASE)
+_BODY_CLOSE_RE = re.compile(r"</body\s*>",    re.IGNORECASE)
 
-    Called after LLM output is cleaned.  Returns modified HTML.
-    """
-    rng = _rng(filename)
 
-    # 1. Credential comment + debug snippet — injected right after <body ...>
-    cred    = rng.choice(_CRED_COMMENTS)
-    debug   = rng.choice(_DEBUG_SNIPPETS)
-    cred_block = f"\n{cred}\n{debug}\n"
+def inject(filename: str, html: str) -> str:
+    """Return html with bait inserted. Deterministic per filename."""
+    rng = _rng_for(filename)
+    cred = _credential_comment(rng)
+    footer = _admin_footer(rng)
 
-    body_tag = re.search(r'<body[^>]*>', html, re.IGNORECASE)
-    if body_tag:
-        pos = body_tag.end()
-        html = html[:pos] + cred_block + html[pos:]
+    m = _BODY_OPEN_RE.search(html)
+    if m:
+        i = m.end()
+        html = html[:i] + "\n" + cred + "\n" + html[i:]
     else:
-        html = cred_block + html
+        html = cred + "\n" + html
 
-    # 2. Admin hint links + optional file listing + a form — appended before </body>
-    admin_set  = rng.choice(_ADMIN_LINK_SETS)
-    admin_html = " | ".join(
-        _build_go_link(fn, lbl, txt) for txt, fn, lbl in admin_set
-    )
-    admin_block = (
-        '\n<hr>\n'
-        '<p align="center"><small><font color="#999999">'
-        f'Internal Tools: {admin_html}'
-        '</font></small></p>\n'
-    )
-
-    file_block = ""
-    if rng.random() < 0.65:
-        files = rng.choice(_FILE_LISTING_SETS)
-        items = "\n".join(
-            f'<li>{_build_go_link(fn, lbl, name)} ({size})</li>'
-            for name, fn, lbl, size in files
-        )
-        file_block = f'\n<hr>\n<p><b>Available Files:</b></p>\n<ul>\n{items}\n</ul>\n'
-
-    form = rng.choice(_FORMS)
-
-    tail = admin_block + file_block + form + "\n"
-
-    close_body = re.search(r'</body>', html, re.IGNORECASE)
-    if close_body:
-        pos = close_body.start()
-        html = html[:pos] + tail + html[pos:]
+    m = _BODY_CLOSE_RE.search(html)
+    if m:
+        i = m.start()
+        html = html[:i] + footer + html[i:]
     else:
-        html = html + tail
+        html = html + footer
 
     return html
+
+
+if __name__ == "__main__":
+    import sys
+    fname = sys.argv[1] if len(sys.argv) > 1 else "demo.php"
+    sample = (
+        "<html>\n<body bgcolor=\"white\">\n"
+        "<h1>Sample Page</h1>\n<p>Hello.</p>\n"
+        "</body>\n</html>\n"
+    )
+    print(inject(fname, sample))
