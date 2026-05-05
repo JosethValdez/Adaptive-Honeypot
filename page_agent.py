@@ -116,5 +116,4 @@ def main():
         f.write("ready\n")
 
 if __name__ == "__main__":
-
     main()
