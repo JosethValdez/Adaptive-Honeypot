@@ -1,0 +1,31 @@
+{
+  "hostname": "srvweb01",
+  "fqdn": "srvweb01.corp.local",
+  "os": "Red Hat Enterprise Linux",
+  "os_version": "4.2 (Nahant Update 2)",
+  "kernel": "2.6.9-55.EL",
+  "server_software": "Apache/2.0.52 (Red Hat)",
+  "server_ip": "192.168.10.50",
+  "server_role": "Internal web and file server",
+  "department": "IT Infrastructure",
+  "organization": "Corporate Operations",
+  "users": [
+    {"username": "admin",     "fullname": "System Administrator", "uid": 0,   "role": "sysadmin", "shell": "/bin/bash",      "ssh_password": "*"},
+    {"username": "webmaster", "fullname": "Web Master",           "uid": 501, "role": "web",      "shell": "/bin/bash",      "ssh_password": "web1234"},
+    {"username": "backup",    "fullname": "Backup Account",       "uid": 502, "role": "backup",   "shell": "/sbin/nologin", "ssh_password": "!"},
+    {"username": "nobody",    "fullname": "Nobody",               "uid": 99,  "role": "service",  "shell": "/sbin/nologin", "ssh_password": "!"}
+  ],
+  "services": ["httpd", "sshd", "crond", "syslogd", "vsftpd"],
+  "pages": [
+    {"filename": "index.php",     "label": "Server Links"},
+    {"filename": "info.php",      "label": "Server Information"},
+    {"filename": "downloads.php", "label": "Downloads"},
+    {"filename": "support.php",   "label": "Support"},
+    {"filename": "news.php",      "label": "News & Updates"},
+    {"filename": "contact.php",   "label": "Contact"},
+    {"filename": "admin.php",     "label": "Administration"},
+    {"filename": "status.php",    "label": "System Status"}
+  ],
+  "ssh_port": 22,
+  "http_port": 80
+}
